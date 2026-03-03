@@ -357,13 +357,31 @@ public class ServiceDiscoveryRegistryDirectory<T> extends DynamicDirectory<T> {
             logger.info(String.format("Refreshed invoker size %s from registry %s", newUrlInvokerMap.size(), this));
 
             if (CollectionUtils.isEmptyMap(newUrlInvokerMap)) {
-                logger.error(
-                        PROTOCOL_UNSUPPORTED,
-                        "",
-                        "",
-                        "Unsupported protocol.",
-                        new IllegalStateException(String.format(
-                                "Cannot create invokers from url address list (total %s)", invokerUrls.size())));
+                // Check if all instances are Spring Cloud instances (no Dubbo metadata)
+                boolean allSpringCloud = !invokerUrls.isEmpty()
+                        && invokerUrls.stream().allMatch(url -> {
+                            if (url instanceof InstanceAddressURL) {
+                                ServiceInstance si = ((InstanceAddressURL) url).getInstance();
+                                return si != null && "SPRING_CLOUD".equals(si.getMetadata("preserved.register.source"));
+                            }
+                            return false;
+                        });
+                if (allSpringCloud) {
+                    logger.warn(
+                            PROTOCOL_UNSUPPORTED,
+                            "",
+                            "",
+                            "No matching Dubbo protocol invokers found. All discovered instances are Spring Cloud instances, "
+                                    + "which cannot be invoked via Dubbo protocol. Waiting for Dubbo provider instances to register.");
+                } else {
+                    logger.error(
+                            PROTOCOL_UNSUPPORTED,
+                            "",
+                            "",
+                            "Unsupported protocol.",
+                            new IllegalStateException(String.format(
+                                    "Cannot create invokers from url address list (total %s)", invokerUrls.size())));
+                }
                 return;
             }
             List<Invoker<T>> newInvokers = Collections.unmodifiableList(new ArrayList<>(newUrlInvokerMap.values()));
